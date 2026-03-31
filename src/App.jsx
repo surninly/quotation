@@ -87,6 +87,15 @@ function App() {
     return '';
   };
 
+  const cleanExtractedValue = (value) => {
+    const raw = String(value ?? '').replace(/\s+/g, ' ').trim();
+    if (!raw) return '';
+    if (raw.startsWith('예:')) return '';
+    if (raw.includes('다운로드 파일명 입력')) return '';
+    if (raw === '항목 추가' || raw === '삭제') return '';
+    return raw.replace(/^[:：-]\s*/, '').trim();
+  };
+
   const parseDate = (text) => {
     const isoMatch = text.match(/(\d{4})[-./](\d{1,2})[-./](\d{1,2})/);
     if (isoMatch) {
@@ -122,59 +131,113 @@ function App() {
     return items;
   };
 
+  const mapHtmlDocToData = (doc) => {
+    const getInfoValue = (labelText) => {
+      const item = Array.from(doc.querySelectorAll('.doc-info-item')).find((node) => {
+        const label = node.querySelector('.doc-info-label')?.textContent?.trim() ?? '';
+        return label.includes(labelText);
+      });
+      const value = item?.querySelector('.doc-info-value')?.textContent ?? '';
+      return cleanExtractedValue(value);
+    };
+
+    const rows = Array.from(doc.querySelectorAll('.items-table tbody tr'));
+    const mappedItems = rows
+      .map((row, idx) => {
+        const cells = row.querySelectorAll('td');
+        if (cells.length < 5) return null;
+        const description = cleanExtractedValue(cells[1].textContent);
+        const quantity = toNumber(cells[2].textContent);
+        const unitPrice = toNumber(cells[3].textContent);
+        if (!description) return null;
+        return {
+          id: Date.now() + idx,
+          description,
+          quantity: quantity || 1,
+          price: unitPrice,
+        };
+      })
+      .filter(Boolean);
+
+    const notesText = doc.querySelector('.notes-area')?.textContent ?? '';
+    const notes = cleanExtractedValue(notesText.replace(/\[\s*비고 및 특이사항\s*\]/, ''));
+
+    const vatText = Array.from(doc.querySelectorAll('.totals-table tr')).find((row) =>
+      row.querySelector('th')?.textContent?.includes('부가세')
+    )?.querySelector('td')?.textContent ?? '';
+
+    const dateText = getInfoValue('견적일자');
+    const mappedDate = parseDate(dateText);
+
+    return {
+      date: mappedDate,
+      quotationNo: getInfoValue('견적번호'),
+      clientName: getInfoValue('수신').replace(/\s*귀하\(사\)?$/, '').trim(),
+      projectName: getInfoValue('건명'),
+      providerBizNo: getInfoValue('등록번호'),
+      providerName: getInfoValue('상호'),
+      providerCEO: getInfoValue('대표자'),
+      providerAddress: getInfoValue('사업장'),
+      providerPhone: getInfoValue('연락처'),
+      taxRate: extractByRegex(vatText, [/(\d{1,2})\s*%/]) || '',
+      notes,
+      items: mappedItems,
+    };
+  };
+
   const mapExtractedTextToData = (rawText) => {
     const text = rawText.replace(/\r/g, '');
     const mappedItems = parseItems(text);
     const mappedDate = parseDate(text);
 
-    const quotationNo = extractByRegex(text, [
+    const quotationNo = cleanExtractedValue(extractByRegex(text, [
       /견적번호\s*[:：]?\s*([A-Za-z0-9_-]+)/,
       /Quotation\s*No\.?\s*[:：]?\s*([A-Za-z0-9_-]+)/i
-    ]);
-    const clientName = extractByRegex(text, [
+    ]));
+    const clientName = cleanExtractedValue(extractByRegex(text, [
       /수신\s*[:：]?\s*([^\n]+)/,
       /받는\s*분\s*[:：]?\s*([^\n]+)/,
       /Client\s*[:：]?\s*([^\n]+)/i
-    ]).replace(/\s*귀하\(사\)?$/, '').trim();
-    const projectName = extractByRegex(text, [
+    ])).replace(/\s*귀하\(사\)?$/, '').trim();
+    const projectName = cleanExtractedValue(extractByRegex(text, [
       /건명\s*[:：]?\s*([^\n]+)/,
       /프로젝트\s*[:：]?\s*([^\n]+)/,
       /Project\s*[:：]?\s*([^\n]+)/i
-    ]);
-    const providerBizNo = extractByRegex(text, [
+    ]));
+    const providerBizNo = cleanExtractedValue(extractByRegex(text, [
       /등록번호\s*[:：]?\s*([0-9-]+)/,
       /사업자등록번호\s*[:：]?\s*([0-9-]+)/,
       /Business\s*No\.?\s*[:：]?\s*([0-9-]+)/i
-    ]);
-    const providerName = extractByRegex(text, [
+    ]));
+    const providerName = cleanExtractedValue(extractByRegex(text, [
       /상호\(법인\)\s*[:：]?\s*([^\n]+)/,
       /상호\(법인명\)\s*[:：]?\s*([^\n]+)/,
       /상호\s*[:：]?\s*([^\n]+)/,
       /Provider\s*[:：]?\s*([^\n]+)/i
-    ]);
-    const providerCEO = extractByRegex(text, [
+    ]));
+    const providerCEO = cleanExtractedValue(extractByRegex(text, [
       /대표자\s*[:：]?\s*([^\n]+)/,
       /CEO\s*[:：]?\s*([^\n]+)/i
-    ]);
-    const providerAddress = extractByRegex(text, [
+    ]));
+    const providerAddress = cleanExtractedValue(extractByRegex(text, [
       /사업장\s*[:：]?\s*([^\n]+)/,
       /주소\s*[:：]?\s*([^\n]+)/,
       /Address\s*[:：]?\s*([^\n]+)/i
-    ]);
-    const providerPhone = extractByRegex(text, [
+    ]));
+    const providerPhone = cleanExtractedValue(extractByRegex(text, [
       /연락처\s*[:：]?\s*([0-9-+\s]+)/,
       /전화\s*[:：]?\s*([0-9-+\s]+)/,
       /Phone\s*[:：]?\s*([0-9-+\s]+)/i
-    ]);
-    const notes = extractByRegex(text, [
+    ]));
+    const notes = cleanExtractedValue(extractByRegex(text, [
       /\[\s*비고 및 특이사항\s*\]\s*([\s\S]+)/,
       /비고\s*[:：]?\s*([\s\S]+)/,
       /Notes?\s*[:：]?\s*([\s\S]+)/i
-    ]).trim();
-    const taxRate = extractByRegex(text, [
+    ])).trim();
+    const taxRate = cleanExtractedValue(extractByRegex(text, [
       /부가세.*?(\d{1,2})\s*%/,
       /VAT.*?(\d{1,2})\s*%/i
-    ]);
+    ]));
 
     return {
       date: mappedDate || data.date,
@@ -211,11 +274,13 @@ function App() {
     if (!file) return;
 
     try {
+      let mapped = null;
       let rawText = '';
       if (file.type === 'text/html' || file.name.toLowerCase().endsWith('.html')) {
         const html = await file.text();
         const parser = new DOMParser();
         const doc = parser.parseFromString(html, 'text/html');
+        mapped = mapHtmlDocToData(doc);
         rawText = doc.body?.textContent || '';
       } else if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
         rawText = await extractTextFromPdf(file);
@@ -224,11 +289,15 @@ function App() {
         return;
       }
 
-      const mapped = mapExtractedTextToData(rawText);
+      const fallbackMapped = mapExtractedTextToData(rawText);
+      const finalMapped = mapped
+        ? { ...fallbackMapped, ...Object.fromEntries(Object.entries(mapped).filter(([, value]) => value && (!(Array.isArray(value)) || value.length > 0))) }
+        : fallbackMapped;
+
       setData((prev) => ({
         ...prev,
-        ...mapped,
-        items: mapped.items.length > 0 ? mapped.items : prev.items,
+        ...finalMapped,
+        items: finalMapped.items.length > 0 ? finalMapped.items : prev.items,
       }));
       setImportStatus(`${file.name} 파일 내용을 불러왔습니다. 필요한 항목은 수정하세요.`);
     } catch {
