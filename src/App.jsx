@@ -287,7 +287,7 @@ function App() {
     ]));
 
     return {
-      date: mappedDate || data.date,
+      date: mappedDate,
       quotationNo,
       clientName,
       projectName,
@@ -302,10 +302,9 @@ function App() {
     };
   };
 
-  const hasMeaningfulMappedData = (mapped) => {
+  const hasMeaningfulMappedData = (mapped, prevDate) => {
     if (!mapped) return false;
     const scalarFields = [
-      mapped.date,
       mapped.quotationNo,
       mapped.clientName,
       mapped.projectName,
@@ -319,7 +318,8 @@ function App() {
     ];
     const hasScalar = scalarFields.some((v) => String(v ?? '').trim().length > 0);
     const hasItems = Array.isArray(mapped.items) && mapped.items.length > 0;
-    return hasScalar || hasItems;
+    const hasDateChange = mapped.date && prevDate && mapped.date !== prevDate;
+    return hasScalar || hasItems || Boolean(hasDateChange);
   };
 
   const extractTextFromPdf = async (file) => {
@@ -413,7 +413,7 @@ function App() {
         );
         const textMapped = mapExtractedTextToData(rawText);
         const cleanedForCheck = rawText.replace(/\s+/g, ' ').trim();
-        if ((!cleanedForCheck || cleanedForCheck.length < 30) && !hasMeaningfulMappedData(textMapped)) {
+        if ((!cleanedForCheck || cleanedForCheck.length < 30) && !hasMeaningfulMappedData(textMapped, data.date)) {
           try {
             rawText = await withTimeout(
               extractTextFromPdfWithOCR(file, setImportStatus),
@@ -437,10 +437,17 @@ function App() {
 
       setData((prev) => ({
         ...prev,
-        ...finalMapped,
+        ...Object.fromEntries(
+          Object.entries(finalMapped).filter(([key, value]) => {
+            if (key === 'items') return false;
+            if (value === null || value === undefined) return false;
+            if (typeof value === 'string' && value.trim() === '') return false;
+            return true;
+          })
+        ),
         items: finalMapped.items.length > 0 ? finalMapped.items : prev.items,
       }));
-      if (!hasMeaningfulMappedData(finalMapped)) {
+      if (!hasMeaningfulMappedData(finalMapped, data.date)) {
         setImportStatus('파일을 읽었지만 매핑 가능한 항목을 찾지 못했습니다. HTML 파일 업로드를 권장합니다.');
         return;
       }
