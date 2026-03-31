@@ -122,6 +122,13 @@ function App() {
     return raw.replace(/^[:：-]\s*/, '').trim();
   };
 
+  const normalizeKoreanText = (value) => {
+    return String(value ?? '')
+      .toLowerCase()
+      .replace(/\s+/g, '')
+      .replace(/[^a-z0-9가-힣]/g, '');
+  };
+
   const parseDate = (text) => {
     const isoMatch = text.match(/(\d{4})[-./](\d{1,2})[-./](\d{1,2})/);
     if (isoMatch) {
@@ -179,15 +186,18 @@ function App() {
   };
 
   const parseLineBasedField = (lines, labels) => {
+    const normalizedLabels = labels.map((label) => normalizeKoreanText(label));
     for (let i = 0; i < lines.length; i += 1) {
       const current = lines[i];
-      const matchedLabel = labels.find((label) => current.includes(label));
+      const normalizedCurrent = normalizeKoreanText(current);
+      const matchedLabelIndex = normalizedLabels.findIndex((label) => normalizedCurrent.includes(label));
+      const matchedLabel = matchedLabelIndex !== -1 ? labels[matchedLabelIndex] : null;
       if (!matchedLabel) continue;
 
       // "라벨: 값" 형태
+      const afterColon = current.split(/[:：]/).slice(1).join(':');
       const inlineValue = cleanExtractedValue(
-        current
-          .replace(matchedLabel, '')
+        (afterColon || current.replace(matchedLabel, ''))
           .replace(/^[:：\-\s]+/, '')
       );
       if (inlineValue) return inlineValue;
@@ -197,7 +207,8 @@ function App() {
         const candidate = cleanExtractedValue(lines[j]);
         if (!candidate) continue;
         if (candidate.includes('예:')) continue;
-        if (labels.some((label) => candidate.includes(label))) continue;
+        const normalizedCandidate = normalizeKoreanText(candidate);
+        if (normalizedLabels.some((label) => normalizedCandidate.includes(label))) continue;
         return candidate;
       }
     }
@@ -205,10 +216,17 @@ function App() {
   };
 
   const parseItemsFromLineBlock = (lines) => {
-    const startIndex = lines.findIndex((line) => line.includes('상세 내역'));
+    const startIndex = lines.findIndex((line) => {
+      const n = normalizeKoreanText(line);
+      return n.includes('상세내역') || n.includes('품목내용');
+    });
     if (startIndex === -1) return [];
 
-    const endIndex = lines.findIndex((line, idx) => idx > startIndex && (line.includes('항목 추가') || line.includes('추가 사항')));
+    const endIndex = lines.findIndex((line, idx) => {
+      if (idx <= startIndex) return false;
+      const n = normalizeKoreanText(line);
+      return n.includes('항목추가') || n.includes('추가사항') || n.includes('부가세vat요율');
+    });
     const block = lines.slice(startIndex + 1, endIndex === -1 ? lines.length : endIndex);
     const items = [];
 
@@ -216,6 +234,8 @@ function App() {
       const description = cleanExtractedValue(block[i]);
       if (!description) continue;
       if (/^(품목\/내용|수량|단가|금액|삭제)$/i.test(description)) continue;
+      const normalizedDesc = normalizeKoreanText(description);
+      if (['품목내용', '수량', '단가원', '금액', '삭제'].some((token) => normalizedDesc.includes(token))) continue;
       if (/^\d[\d,]*$/.test(description)) continue;
 
       const qty = toNumber(block[i + 1]);
