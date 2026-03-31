@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import html2pdf from 'html2pdf.js';
 import { Download, FileCode2, Plus, Trash2, FileText, Upload } from 'lucide-react';
 import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
@@ -30,7 +30,33 @@ function App() {
   const [downloadFileName, setDownloadFileName] = useState('');
   const [importStatus, setImportStatus] = useState('');
   const previewRef = useRef(null);
+  const ocrWorkerRef = useRef(null);
+  const ocrInitPromiseRef = useRef(null);
   GlobalWorkerOptions.workerSrc = pdfWorker;
+
+  const initOcrWorker = async () => {
+    if (ocrWorkerRef.current) return ocrWorkerRef.current;
+    if (!ocrInitPromiseRef.current) {
+      ocrInitPromiseRef.current = (async () => {
+        const { createWorker } = await import('tesseract.js');
+        const worker = await createWorker('kor');
+        ocrWorkerRef.current = worker;
+        return worker;
+      })();
+    }
+    return ocrInitPromiseRef.current;
+  };
+
+  useEffect(() => {
+    // 첫 사용 지연을 줄이기 위해 OCR 워커를 백그라운드에서 미리 준비합니다.
+    initOcrWorker().catch(() => {});
+    return () => {
+      if (ocrWorkerRef.current) {
+        ocrWorkerRef.current.terminate();
+        ocrWorkerRef.current = null;
+      }
+    };
+  }, []);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -292,12 +318,11 @@ function App() {
 
   const extractTextFromPdfWithOCR = async (file, setProgress) => {
     // 텍스트 추출이 비어있을 때(이미지 기반 PDF) OCR로 재추출합니다.
-    const { createWorker } = await import('tesseract.js');
     const arrayBuffer = await file.arrayBuffer();
     const loadingTask = getDocument({ data: arrayBuffer });
     const pdf = await loadingTask.promise;
 
-    const worker = await createWorker('kor');
+    const worker = await initOcrWorker();
     let lastPercent = -1;
     setProgress?.('불러오는 중입니다... (0%)');
 
@@ -307,7 +332,7 @@ function App() {
 
     for (let pageNo = 1; pageNo <= pagesToProcess; pageNo += 1) {
       const page = await pdf.getPage(pageNo);
-      const viewport = page.getViewport({ scale: 1.6 });
+      const viewport = page.getViewport({ scale: 1.3 });
       const canvas = document.createElement('canvas');
       const context = canvas.getContext('2d');
       canvas.width = viewport.width;
@@ -330,7 +355,6 @@ function App() {
       fullText += `${data.text}\n`;
     }
 
-    await worker.terminate();
     setProgress?.('불러오는 중입니다... (매핑 중)');
     return fullText.trim();
   };
@@ -365,14 +389,14 @@ function App() {
         rawText = await withTimeout(
           extractTextFromPdf(file),
           15000,
-          '15초 안에 PDF 텍스트를 읽지 못했습니다.'
+          'PDF를 읽지 못했습니다.'
         );
         const cleanedForCheck = rawText.replace(/\s+/g, ' ').trim();
         if (!cleanedForCheck || cleanedForCheck.length < 30) {
           rawText = await withTimeout(
             extractTextFromPdfWithOCR(file, setImportStatus),
             15000,
-            '15초 안에 PDF를 읽지 못했습니다.'
+            'PDF를 읽지 못했습니다.'
           );
         }
       } else {
@@ -391,8 +415,8 @@ function App() {
         items: finalMapped.items.length > 0 ? finalMapped.items : prev.items,
       }));
       setImportStatus(`${file.name} 파일 내용을 불러왔습니다. 필요한 항목은 수정하세요.`);
-    } catch (err) {
-      setImportStatus(`파일 불러오기에 실패했습니다: ${err?.message || '알 수 없는 오류'}`);
+    } catch {
+      setImportStatus('파일 불러오기에 실패했습니다: PDF를 읽지 못했습니다.');
     } finally {
       event.target.value = '';
     }
