@@ -20,7 +20,7 @@ const initialData = {
     { id: 3, description: '', quantity: 1, price: 0 },
   ],
   taxRate: 10,
-  notes: '1. 부가세(VAT) 별도 금액입니다.\n2.. 결제조건: 착수금 50%, 잔금 50% (검수 완료 후 7일 이내)',
+  notes: '',
 };
 
 function App() {
