@@ -5,7 +5,7 @@ import './index.css';
 
 const initialData = {
   date: new Date().toISOString().split('T')[0],
-  quotationNo: `EST-${new Date().getTime().toString().slice(-6)}`,
+  quotationNo: '',
   clientName: '',
   projectName: '',
   providerName: '',
@@ -19,7 +19,7 @@ const initialData = {
     { id: 2, description: '', quantity: 1, price: 0 },
     { id: 3, description: '', quantity: 1, price: 0 },
   ],
-  taxRate: 10,
+  taxRate: '',
   notes: '',
 };
 
