@@ -302,6 +302,26 @@ function App() {
     };
   };
 
+  const hasMeaningfulMappedData = (mapped) => {
+    if (!mapped) return false;
+    const scalarFields = [
+      mapped.date,
+      mapped.quotationNo,
+      mapped.clientName,
+      mapped.projectName,
+      mapped.providerName,
+      mapped.providerCEO,
+      mapped.providerAddress,
+      mapped.providerPhone,
+      mapped.providerBizNo,
+      mapped.taxRate,
+      mapped.notes,
+    ];
+    const hasScalar = scalarFields.some((v) => String(v ?? '').trim().length > 0);
+    const hasItems = Array.isArray(mapped.items) && mapped.items.length > 0;
+    return hasScalar || hasItems;
+  };
+
   const extractTextFromPdf = async (file) => {
     const arrayBuffer = await file.arrayBuffer();
     const loadingTask = getDocument({ data: arrayBuffer });
@@ -391,13 +411,19 @@ function App() {
           15000,
           'PDF를 읽지 못했습니다.'
         );
+        const textMapped = mapExtractedTextToData(rawText);
         const cleanedForCheck = rawText.replace(/\s+/g, ' ').trim();
-        if (!cleanedForCheck || cleanedForCheck.length < 30) {
-          rawText = await withTimeout(
-            extractTextFromPdfWithOCR(file, setImportStatus),
-            15000,
-            'PDF를 읽지 못했습니다.'
-          );
+        if ((!cleanedForCheck || cleanedForCheck.length < 30) && !hasMeaningfulMappedData(textMapped)) {
+          try {
+            rawText = await withTimeout(
+              extractTextFromPdfWithOCR(file, setImportStatus),
+              15000,
+              'PDF를 읽지 못했습니다.'
+            );
+          } catch {
+            // OCR이 시간 초과/실패해도 1차 텍스트 추출 결과를 우선 사용합니다.
+            rawText = rawText || '';
+          }
         }
       } else {
         setImportStatus('PDF 또는 HTML 파일만 불러올 수 있습니다.');
@@ -414,6 +440,10 @@ function App() {
         ...finalMapped,
         items: finalMapped.items.length > 0 ? finalMapped.items : prev.items,
       }));
+      if (!hasMeaningfulMappedData(finalMapped)) {
+        setImportStatus('파일을 읽었지만 매핑 가능한 항목을 찾지 못했습니다. HTML 파일 업로드를 권장합니다.');
+        return;
+      }
       setImportStatus(`${file.name} 파일 내용을 불러왔습니다. 필요한 항목은 수정하세요.`);
     } catch {
       setImportStatus('파일 불러오기에 실패했습니다: PDF를 읽지 못했습니다.');
