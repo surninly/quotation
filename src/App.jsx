@@ -39,7 +39,7 @@ function App() {
     if (!ocrInitPromiseRef.current) {
       ocrInitPromiseRef.current = (async () => {
         const { createWorker } = await import('tesseract.js');
-        const worker = await createWorker('kor');
+        const worker = await createWorker('kor+eng');
         ocrWorkerRef.current = worker;
         return worker;
       })();
@@ -178,6 +178,62 @@ function App() {
     return items;
   };
 
+  const parseLineBasedField = (lines, labels) => {
+    for (let i = 0; i < lines.length; i += 1) {
+      const current = lines[i];
+      const matchedLabel = labels.find((label) => current.includes(label));
+      if (!matchedLabel) continue;
+
+      // "라벨: 값" 형태
+      const inlineValue = cleanExtractedValue(
+        current
+          .replace(matchedLabel, '')
+          .replace(/^[:：\-\s]+/, '')
+      );
+      if (inlineValue) return inlineValue;
+
+      // 다음 줄에 값이 있는 형태
+      for (let j = i + 1; j < Math.min(i + 4, lines.length); j += 1) {
+        const candidate = cleanExtractedValue(lines[j]);
+        if (!candidate) continue;
+        if (candidate.includes('예:')) continue;
+        if (labels.some((label) => candidate.includes(label))) continue;
+        return candidate;
+      }
+    }
+    return '';
+  };
+
+  const parseItemsFromLineBlock = (lines) => {
+    const startIndex = lines.findIndex((line) => line.includes('상세 내역'));
+    if (startIndex === -1) return [];
+
+    const endIndex = lines.findIndex((line, idx) => idx > startIndex && (line.includes('항목 추가') || line.includes('추가 사항')));
+    const block = lines.slice(startIndex + 1, endIndex === -1 ? lines.length : endIndex);
+    const items = [];
+
+    for (let i = 0; i < block.length; i += 1) {
+      const description = cleanExtractedValue(block[i]);
+      if (!description) continue;
+      if (/^(품목\/내용|수량|단가|금액|삭제)$/i.test(description)) continue;
+      if (/^\d[\d,]*$/.test(description)) continue;
+
+      const qty = toNumber(block[i + 1]);
+      const price = toNumber(block[i + 2]);
+      if (qty > 0 && price >= 0) {
+        items.push({
+          id: Date.now() + items.length,
+          description,
+          quantity: qty,
+          price,
+        });
+        i += 2;
+      }
+    }
+
+    return items;
+  };
+
   const mapHtmlDocToData = (doc) => {
     const getInfoValue = (labelText) => {
       const item = Array.from(doc.querySelectorAll('.doc-info-item')).find((node) => {
@@ -234,54 +290,60 @@ function App() {
 
   const mapExtractedTextToData = (rawText) => {
     const text = rawText.replace(/\r/g, '');
+    const lines = text
+      .split('\n')
+      .map((line) => line.replace(/\s+/g, ' ').trim())
+      .filter(Boolean);
+
     const mappedItems = parseItems(text);
+    const mappedItemsByBlock = parseItemsFromLineBlock(lines);
     const mappedDate = parseDate(text);
 
-    const quotationNo = cleanExtractedValue(extractByRegex(text, [
+    const quotationNo = cleanExtractedValue(parseLineBasedField(lines, ['견적번호', 'Quotation No'])) || cleanExtractedValue(extractByRegex(text, [
       /견적번호\s*[:：]?\s*([A-Za-z0-9_-]+)/,
       /Quotation\s*No\.?\s*[:：]?\s*([A-Za-z0-9_-]+)/i
     ]));
-    const clientName = cleanExtractedValue(extractByRegex(text, [
+    const clientName = (cleanExtractedValue(parseLineBasedField(lines, ['수신', '받는 분', 'Client'])) || cleanExtractedValue(extractByRegex(text, [
       /수신\s*[:：]?\s*([^\n]+)/,
       /받는\s*분\s*[:：]?\s*([^\n]+)/,
       /Client\s*[:：]?\s*([^\n]+)/i
-    ])).replace(/\s*귀하\(사\)?$/, '').trim();
-    const projectName = cleanExtractedValue(extractByRegex(text, [
+    ]))).replace(/\s*귀하\(사\)?$/, '').trim();
+    const projectName = cleanExtractedValue(parseLineBasedField(lines, ['건명', '프로젝트', 'Project'])) || cleanExtractedValue(extractByRegex(text, [
       /건명\s*[:：]?\s*([^\n]+)/,
       /프로젝트\s*[:：]?\s*([^\n]+)/,
       /Project\s*[:：]?\s*([^\n]+)/i
     ]));
-    const providerBizNo = cleanExtractedValue(extractByRegex(text, [
+    const providerBizNo = cleanExtractedValue(parseLineBasedField(lines, ['등록번호', '사업자등록번호', 'Business No'])) || cleanExtractedValue(extractByRegex(text, [
       /등록번호\s*[:：]?\s*([0-9-]+)/,
       /사업자등록번호\s*[:：]?\s*([0-9-]+)/,
       /Business\s*No\.?\s*[:：]?\s*([0-9-]+)/i
     ]));
-    const providerName = cleanExtractedValue(extractByRegex(text, [
+    const providerName = cleanExtractedValue(parseLineBasedField(lines, ['상호(법인)', '상호(법인명)', '상호', 'Provider'])) || cleanExtractedValue(extractByRegex(text, [
       /상호\(법인\)\s*[:：]?\s*([^\n]+)/,
       /상호\(법인명\)\s*[:：]?\s*([^\n]+)/,
       /상호\s*[:：]?\s*([^\n]+)/,
       /Provider\s*[:：]?\s*([^\n]+)/i
     ]));
-    const providerCEO = cleanExtractedValue(extractByRegex(text, [
+    const providerCEO = cleanExtractedValue(parseLineBasedField(lines, ['대표자', 'CEO'])) || cleanExtractedValue(extractByRegex(text, [
       /대표자\s*[:：]?\s*([^\n]+)/,
       /CEO\s*[:：]?\s*([^\n]+)/i
     ]));
-    const providerAddress = cleanExtractedValue(extractByRegex(text, [
+    const providerAddress = cleanExtractedValue(parseLineBasedField(lines, ['사업장', '주소', 'Address'])) || cleanExtractedValue(extractByRegex(text, [
       /사업장\s*[:：]?\s*([^\n]+)/,
       /주소\s*[:：]?\s*([^\n]+)/,
       /Address\s*[:：]?\s*([^\n]+)/i
     ]));
-    const providerPhone = cleanExtractedValue(extractByRegex(text, [
+    const providerPhone = cleanExtractedValue(parseLineBasedField(lines, ['연락처', '전화', 'Phone'])) || cleanExtractedValue(extractByRegex(text, [
       /연락처\s*[:：]?\s*([0-9-+\s]+)/,
       /전화\s*[:：]?\s*([0-9-+\s]+)/,
       /Phone\s*[:：]?\s*([0-9-+\s]+)/i
     ]));
-    const notes = cleanExtractedValue(extractByRegex(text, [
+    const notes = cleanExtractedValue(parseLineBasedField(lines, ['비고 및 안내사항', '비고', 'Notes'])) || cleanExtractedValue(extractByRegex(text, [
       /\[\s*비고 및 특이사항\s*\]\s*([\s\S]+)/,
       /비고\s*[:：]?\s*([\s\S]+)/,
       /Notes?\s*[:：]?\s*([\s\S]+)/i
     ])).trim();
-    const taxRate = cleanExtractedValue(extractByRegex(text, [
+    const taxRate = cleanExtractedValue(parseLineBasedField(lines, ['부가세(VAT) 요율', '부가세', 'VAT'])) || cleanExtractedValue(extractByRegex(text, [
       /부가세.*?(\d{1,2})\s*%/,
       /VAT.*?(\d{1,2})\s*%/i
     ]));
@@ -298,7 +360,7 @@ function App() {
       providerBizNo,
       taxRate,
       notes,
-      items: mappedItems,
+      items: mappedItemsByBlock.length > 0 ? mappedItemsByBlock : mappedItems,
     };
   };
 
