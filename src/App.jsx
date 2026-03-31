@@ -27,7 +27,7 @@ const initialData = {
 
 function App() {
   const [data, setData] = useState(initialData);
-  const [downloadFileName, setDownloadFileName] = useState('견적서');
+  const [downloadFileName, setDownloadFileName] = useState('');
   const [importStatus, setImportStatus] = useState('');
   const previewRef = useRef(null);
   GlobalWorkerOptions.workerSrc = pdfWorker;
