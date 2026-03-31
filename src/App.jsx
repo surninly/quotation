@@ -71,9 +71,9 @@ function App() {
   const handleDownloadPDF = () => {
     const element = previewRef.current;
 
-    // Ensure all styles are applied prior to generation
+
     const opt = {
-      margin: [10, 10, 10, 10], // top, left, bottom, right
+      margin: [10, 10, 10, 10], 
       filename: `견적서_${data.quotationNo}.pdf`,
       image: { type: 'jpeg', quality: 0.98 },
       html2canvas: { scale: 2, useCORS: true, logging: false },
@@ -172,15 +172,15 @@ function App() {
             </div>
             <div className="form-group">
               <label>견적번호</label>
-              <input type="text" name="quotationNo" value={data.quotationNo} onChange={handleChange} />
+              <input type="text" name="quotationNo" value={data.quotationNo} onChange={handleChange} placeholder="예: EST-240331" />
             </div>
             <div className="form-group">
               <label>수신 (고객명)</label>
-              <input type="text" name="clientName" value={data.clientName} onChange={handleChange} />
+              <input type="text" name="clientName" value={data.clientName} onChange={handleChange} placeholder="예: 홍길동 / (주)고객사" />
             </div>
             <div className="form-group">
               <label>건명 (프로젝트)</label>
-              <input type="text" name="projectName" value={data.projectName} onChange={handleChange} />
+              <input type="text" name="projectName" value={data.projectName} onChange={handleChange} placeholder="예: 웹사이트 구축 프로젝트" />
             </div>
           </div>
 
@@ -188,23 +188,23 @@ function App() {
           <div className="grid-2">
             <div className="form-group">
               <label>상호(법인명)</label>
-              <input type="text" name="providerName" value={data.providerName} onChange={handleChange} />
+              <input type="text" name="providerName" value={data.providerName} onChange={handleChange} placeholder="예: (주)서린테크" />
             </div>
             <div className="form-group">
               <label>대표자</label>
-              <input type="text" name="providerCEO" value={data.providerCEO} onChange={handleChange} />
+              <input type="text" name="providerCEO" value={data.providerCEO} onChange={handleChange} placeholder="예: 김대표" />
             </div>
             <div className="form-group">
               <label>사업자등록번호</label>
-              <input type="text" name="providerBizNo" value={data.providerBizNo} onChange={handleChange} />
+              <input type="text" name="providerBizNo" value={data.providerBizNo} onChange={handleChange} placeholder="예: 123-45-67890" />
             </div>
             <div className="form-group">
               <label>연락처</label>
-              <input type="text" name="providerPhone" value={data.providerPhone} onChange={handleChange} />
+              <input type="text" name="providerPhone" value={data.providerPhone} onChange={handleChange} placeholder="예: 010-1234-5678" />
             </div>
             <div className="form-group" style={{ gridColumn: 'span 2' }}>
               <label>주소</label>
-              <input type="text" name="providerAddress" value={data.providerAddress} onChange={handleChange} />
+              <input type="text" name="providerAddress" value={data.providerAddress} onChange={handleChange} placeholder="예: 서울시 강남구 테헤란로 123" />
             </div>
           </div>
 
@@ -229,6 +229,7 @@ function App() {
                   min="1"
                   value={item.quantity}
                   onChange={(e) => handleItemChange(item.id, 'quantity', e.target.value)}
+                  placeholder="예: 1"
                 />
                 <input
                   type="number"
@@ -236,6 +237,7 @@ function App() {
                   step="1000"
                   value={item.price}
                   onChange={(e) => handleItemChange(item.id, 'price', e.target.value)}
+                  placeholder="예: 50000"
                 />
                 <button className="btn-icon" onClick={() => removeItem(item.id)} title="삭제">
                   <Trash2 size={18} />
@@ -250,11 +252,11 @@ function App() {
           <h3 className="section-title" style={{ marginTop: '1.5rem' }}>추가 사항</h3>
           <div className="form-group">
             <label>부가세(VAT) 요율 (%)</label>
-            <input type="number" name="taxRate" value={data.taxRate} onChange={handleChange} />
+            <input type="number" name="taxRate" value={data.taxRate} onChange={handleChange} placeholder="예: 10" />
           </div>
           <div className="form-group">
             <label>비고 및 안내사항 (Notes)</label>
-            <textarea name="notes" rows="4" value={data.notes} onChange={handleChange}></textarea>
+            <textarea name="notes" rows="4" value={data.notes} onChange={handleChange} placeholder="예: 유효기간 30일 / 선금 50% / VAT 별도"></textarea>
           </div>
         </section>
 
@@ -262,7 +264,7 @@ function App() {
         <section className="preview-wrapper">
           <div className="document-preview" ref={previewRef} id="quotation-preview">
             <div className="doc-header">
-              <h2 className="doc-title">견적서 (QUOTATION)</h2>
+              <h2 className="doc-title">견적서</h2>
             </div>
 
             <div className="doc-info-grid">

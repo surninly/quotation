@@ -144,6 +144,12 @@ body {
   box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
 }
 
+.form-group input::placeholder,
+.form-group textarea::placeholder,
+.item-row input::placeholder {
+  color: #cbd5e1;
+}
+
 .grid-2 {
   display: grid;
   grid-template-columns: 1fr 1fr;
