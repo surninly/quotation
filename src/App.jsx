@@ -299,14 +299,15 @@ function App() {
 
     const worker = await createWorker('kor');
     let lastPercent = -1;
-    setProgress?.('OCR 중입니다... (0%)');
+    setProgress?.('불러오는 중입니다... (0%)');
 
-    const pagesToProcess = Math.min(pdf.numPages, 2);
+    // 15초 내 응답성을 위해 OCR은 첫 1페이지만 우선 처리합니다.
+    const pagesToProcess = Math.min(pdf.numPages, 1);
     let fullText = '';
 
     for (let pageNo = 1; pageNo <= pagesToProcess; pageNo += 1) {
       const page = await pdf.getPage(pageNo);
-      const viewport = page.getViewport({ scale: 2.0 });
+      const viewport = page.getViewport({ scale: 1.6 });
       const canvas = document.createElement('canvas');
       const context = canvas.getContext('2d');
       canvas.width = viewport.width;
@@ -320,7 +321,7 @@ function App() {
             const pct = m?.progress ? Math.floor(m.progress * 100) : 0;
             if (pct !== lastPercent) {
               lastPercent = pct;
-              setProgress?.(`OCR 중입니다... (${pct}%)`);
+              setProgress?.(`불러오는 중입니다... (${pct}%)`);
             }
           }
         },
@@ -330,8 +331,20 @@ function App() {
     }
 
     await worker.terminate();
-    setProgress?.('OCR 완료. 매핑 중...');
+    setProgress?.('불러오는 중입니다... (매핑 중)');
     return fullText.trim();
+  };
+
+  const withTimeout = async (promise, ms, timeoutMessage) => {
+    let timer;
+    const timeoutPromise = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(timeoutMessage)), ms);
+    });
+    try {
+      return await Promise.race([promise, timeoutPromise]);
+    } finally {
+      clearTimeout(timer);
+    }
   };
 
   const handleImportFile = async (event) => {
@@ -339,6 +352,7 @@ function App() {
     if (!file) return;
 
     try {
+      setImportStatus('불러오는 중입니다...');
       let mapped = null;
       let rawText = '';
       if (file.type === 'text/html' || file.name.toLowerCase().endsWith('.html')) {
@@ -348,10 +362,18 @@ function App() {
         mapped = mapHtmlDocToData(doc);
         rawText = doc.body?.textContent || '';
       } else if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
-        rawText = await extractTextFromPdf(file);
+        rawText = await withTimeout(
+          extractTextFromPdf(file),
+          15000,
+          '15초 안에 PDF 텍스트를 읽지 못했습니다.'
+        );
         const cleanedForCheck = rawText.replace(/\s+/g, ' ').trim();
         if (!cleanedForCheck || cleanedForCheck.length < 30) {
-          rawText = await extractTextFromPdfWithOCR(file, setImportStatus);
+          rawText = await withTimeout(
+            extractTextFromPdfWithOCR(file, setImportStatus),
+            15000,
+            '15초 안에 PDF를 읽지 못했습니다.'
+          );
         }
       } else {
         setImportStatus('PDF 또는 HTML 파일만 불러올 수 있습니다.');
