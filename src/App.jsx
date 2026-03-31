@@ -118,15 +118,36 @@ function App() {
     const lines = text.split('\n').map((line) => line.trim()).filter(Boolean);
     const items = [];
     for (const line of lines) {
-      const match = line.match(/^\d+\s+(.+?)\s+(\d+)\s+([\d,]+)\s+([\d,]+)$/);
-      if (match) {
-        items.push({
-          id: Date.now() + items.length,
-          description: match[1].trim(),
-          quantity: toNumber(match[2]) || 1,
-          price: toNumber(match[3]),
-        });
+      // OCR/PDF 텍스트 등에서 줄이 "No description qty unitPrice amount" 형태로 떨어질 수 있어요.
+      const rowMatch = line.match(/^(\d+)\s+/);
+      const rest = rowMatch ? line.slice(rowMatch[0].length).trim() : line;
+      const nums = rest.match(/(\d[\d,]*)/g);
+      if (!nums || nums.length < 2) continue;
+
+      const quantityToken = nums.length >= 3 ? nums[nums.length - 3] : nums[0];
+      const unitPriceToken = nums.length >= 3 ? nums[nums.length - 2] : nums[1];
+
+      const quantity = toNumber(quantityToken) || 1;
+      const price = toNumber(unitPriceToken);
+
+      // 설명은 숫자 토큰(맨 끝들) 제거 후 남는 텍스트로 최대한 추정
+      let description = rest;
+      if (nums.length >= 3) {
+        const tail = `${nums[nums.length - 3]}\\s+${nums[nums.length - 2]}\\s+${nums[nums.length - 1]}`;
+        description = rest.replace(new RegExp(`\\s*${tail}\\s*$`), '').trim();
+      } else if (nums.length === 2) {
+        const tail = `${nums[0]}\\s+${nums[1]}`;
+        description = rest.replace(new RegExp(`\\s*${tail}\\s*$`), '').trim();
       }
+
+      if (!description) continue;
+
+      items.push({
+        id: Date.now() + items.length,
+        description,
+        quantity,
+        price,
+      });
     }
     return items;
   };
@@ -269,6 +290,50 @@ function App() {
     return pages.join('\n');
   };
 
+  const extractTextFromPdfWithOCR = async (file, setProgress) => {
+    // 텍스트 추출이 비어있을 때(이미지 기반 PDF) OCR로 재추출합니다.
+    const { createWorker } = await import('tesseract.js');
+    const arrayBuffer = await file.arrayBuffer();
+    const loadingTask = getDocument({ data: arrayBuffer });
+    const pdf = await loadingTask.promise;
+
+    const worker = await createWorker('kor');
+    let lastPercent = -1;
+    setProgress?.('OCR 중입니다... (0%)');
+
+    const pagesToProcess = Math.min(pdf.numPages, 2);
+    let fullText = '';
+
+    for (let pageNo = 1; pageNo <= pagesToProcess; pageNo += 1) {
+      const page = await pdf.getPage(pageNo);
+      const viewport = page.getViewport({ scale: 2.0 });
+      const canvas = document.createElement('canvas');
+      const context = canvas.getContext('2d');
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+
+      await page.render({ canvasContext: context, viewport }).promise;
+
+      const { data } = await worker.recognize(canvas, {
+        logger: (m) => {
+          if (m?.status === 'recognizing text') {
+            const pct = m?.progress ? Math.floor(m.progress * 100) : 0;
+            if (pct !== lastPercent) {
+              lastPercent = pct;
+              setProgress?.(`OCR 중입니다... (${pct}%)`);
+            }
+          }
+        },
+      });
+
+      fullText += `${data.text}\n`;
+    }
+
+    await worker.terminate();
+    setProgress?.('OCR 완료. 매핑 중...');
+    return fullText.trim();
+  };
+
   const handleImportFile = async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -284,6 +349,10 @@ function App() {
         rawText = doc.body?.textContent || '';
       } else if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
         rawText = await extractTextFromPdf(file);
+        const cleanedForCheck = rawText.replace(/\s+/g, ' ').trim();
+        if (!cleanedForCheck || cleanedForCheck.length < 30) {
+          rawText = await extractTextFromPdfWithOCR(file, setImportStatus);
+        }
       } else {
         setImportStatus('PDF 또는 HTML 파일만 불러올 수 있습니다.');
         return;
@@ -300,8 +369,8 @@ function App() {
         items: finalMapped.items.length > 0 ? finalMapped.items : prev.items,
       }));
       setImportStatus(`${file.name} 파일 내용을 불러왔습니다. 필요한 항목은 수정하세요.`);
-    } catch {
-      setImportStatus('파일 불러오기에 실패했습니다. 파일 형식을 확인해주세요.');
+    } catch (err) {
+      setImportStatus(`파일 불러오기에 실패했습니다: ${err?.message || '알 수 없는 오류'}`);
     } finally {
       event.target.value = '';
     }
