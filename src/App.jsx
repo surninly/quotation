@@ -1,6 +1,8 @@
 import React, { useState, useRef } from 'react';
 import html2pdf from 'html2pdf.js';
-import { Download, FileCode2, Plus, Trash2, FileText } from 'lucide-react';
+import { Download, FileCode2, Plus, Trash2, FileText, Upload } from 'lucide-react';
+import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
+import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import './index.css';
 
 const initialData = {
@@ -25,7 +27,10 @@ const initialData = {
 
 function App() {
   const [data, setData] = useState(initialData);
+  const [downloadFileName, setDownloadFileName] = useState('견적서');
+  const [importStatus, setImportStatus] = useState('');
   const previewRef = useRef(null);
+  GlobalWorkerOptions.workerSrc = pdfWorker;
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -61,6 +66,178 @@ function App() {
   const taxAmount = Math.floor(subTotal * (data.taxRate / 100));
   const grandTotal = subTotal + taxAmount;
 
+  const sanitizeFileName = (name) => {
+    const safeName = name.trim().replace(/[\\/:*?"<>|]/g, '_');
+    return safeName || '견적서';
+  };
+
+  const toNumber = (value) => {
+    const cleaned = String(value ?? '').replace(/[^\d.-]/g, '');
+    const parsed = Number(cleaned);
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+
+  const extractByRegex = (text, patterns) => {
+    for (const pattern of patterns) {
+      const match = text.match(pattern);
+      if (match && match[1]) {
+        return match[1].trim();
+      }
+    }
+    return '';
+  };
+
+  const parseDate = (text) => {
+    const isoMatch = text.match(/(\d{4})[-./](\d{1,2})[-./](\d{1,2})/);
+    if (isoMatch) {
+      const y = isoMatch[1];
+      const m = isoMatch[2].padStart(2, '0');
+      const d = isoMatch[3].padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+    const korMatch = text.match(/(\d{4})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일/);
+    if (korMatch) {
+      const y = korMatch[1];
+      const m = korMatch[2].padStart(2, '0');
+      const d = korMatch[3].padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+    return '';
+  };
+
+  const parseItems = (text) => {
+    const lines = text.split('\n').map((line) => line.trim()).filter(Boolean);
+    const items = [];
+    for (const line of lines) {
+      const match = line.match(/^\d+\s+(.+?)\s+(\d+)\s+([\d,]+)\s+([\d,]+)$/);
+      if (match) {
+        items.push({
+          id: Date.now() + items.length,
+          description: match[1].trim(),
+          quantity: toNumber(match[2]) || 1,
+          price: toNumber(match[3]),
+        });
+      }
+    }
+    return items;
+  };
+
+  const mapExtractedTextToData = (rawText) => {
+    const text = rawText.replace(/\r/g, '');
+    const mappedItems = parseItems(text);
+    const mappedDate = parseDate(text);
+
+    const quotationNo = extractByRegex(text, [
+      /견적번호\s*[:：]?\s*([A-Za-z0-9_-]+)/,
+      /Quotation\s*No\.?\s*[:：]?\s*([A-Za-z0-9_-]+)/i
+    ]);
+    const clientName = extractByRegex(text, [
+      /수신\s*[:：]?\s*([^\n]+)/,
+      /받는\s*분\s*[:：]?\s*([^\n]+)/,
+      /Client\s*[:：]?\s*([^\n]+)/i
+    ]).replace(/\s*귀하\(사\)?$/, '').trim();
+    const projectName = extractByRegex(text, [
+      /건명\s*[:：]?\s*([^\n]+)/,
+      /프로젝트\s*[:：]?\s*([^\n]+)/,
+      /Project\s*[:：]?\s*([^\n]+)/i
+    ]);
+    const providerBizNo = extractByRegex(text, [
+      /등록번호\s*[:：]?\s*([0-9-]+)/,
+      /사업자등록번호\s*[:：]?\s*([0-9-]+)/,
+      /Business\s*No\.?\s*[:：]?\s*([0-9-]+)/i
+    ]);
+    const providerName = extractByRegex(text, [
+      /상호\(법인\)\s*[:：]?\s*([^\n]+)/,
+      /상호\(법인명\)\s*[:：]?\s*([^\n]+)/,
+      /상호\s*[:：]?\s*([^\n]+)/,
+      /Provider\s*[:：]?\s*([^\n]+)/i
+    ]);
+    const providerCEO = extractByRegex(text, [
+      /대표자\s*[:：]?\s*([^\n]+)/,
+      /CEO\s*[:：]?\s*([^\n]+)/i
+    ]);
+    const providerAddress = extractByRegex(text, [
+      /사업장\s*[:：]?\s*([^\n]+)/,
+      /주소\s*[:：]?\s*([^\n]+)/,
+      /Address\s*[:：]?\s*([^\n]+)/i
+    ]);
+    const providerPhone = extractByRegex(text, [
+      /연락처\s*[:：]?\s*([0-9-+\s]+)/,
+      /전화\s*[:：]?\s*([0-9-+\s]+)/,
+      /Phone\s*[:：]?\s*([0-9-+\s]+)/i
+    ]);
+    const notes = extractByRegex(text, [
+      /\[\s*비고 및 특이사항\s*\]\s*([\s\S]+)/,
+      /비고\s*[:：]?\s*([\s\S]+)/,
+      /Notes?\s*[:：]?\s*([\s\S]+)/i
+    ]).trim();
+    const taxRate = extractByRegex(text, [
+      /부가세.*?(\d{1,2})\s*%/,
+      /VAT.*?(\d{1,2})\s*%/i
+    ]);
+
+    return {
+      date: mappedDate || data.date,
+      quotationNo,
+      clientName,
+      projectName,
+      providerName,
+      providerCEO,
+      providerAddress,
+      providerPhone,
+      providerBizNo,
+      taxRate,
+      notes,
+      items: mappedItems,
+    };
+  };
+
+  const extractTextFromPdf = async (file) => {
+    const arrayBuffer = await file.arrayBuffer();
+    const loadingTask = getDocument({ data: arrayBuffer });
+    const pdf = await loadingTask.promise;
+    const pages = [];
+    for (let pageNo = 1; pageNo <= pdf.numPages; pageNo += 1) {
+      const page = await pdf.getPage(pageNo);
+      const content = await page.getTextContent();
+      const text = content.items.map((item) => item.str).join(' ');
+      pages.push(text);
+    }
+    return pages.join('\n');
+  };
+
+  const handleImportFile = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      let rawText = '';
+      if (file.type === 'text/html' || file.name.toLowerCase().endsWith('.html')) {
+        const html = await file.text();
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, 'text/html');
+        rawText = doc.body?.textContent || '';
+      } else if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
+        rawText = await extractTextFromPdf(file);
+      } else {
+        setImportStatus('PDF 또는 HTML 파일만 불러올 수 있습니다.');
+        return;
+      }
+
+      const mapped = mapExtractedTextToData(rawText);
+      setData((prev) => ({
+        ...prev,
+        ...mapped,
+        items: mapped.items.length > 0 ? mapped.items : prev.items,
+      }));
+      setImportStatus(`${file.name} 파일 내용을 불러왔습니다. 필요한 항목은 수정하세요.`);
+    } catch {
+      setImportStatus('파일 불러오기에 실패했습니다. 파일 형식을 확인해주세요.');
+    } finally {
+      event.target.value = '';
+    }
+  };
+
   const getFormatDate = (dateString) => {
     if (!dateString) return '';
     const date = new Date(dateString);
@@ -70,11 +247,12 @@ function App() {
   // PDF 다운로드
   const handleDownloadPDF = () => {
     const element = previewRef.current;
+    const baseFileName = sanitizeFileName(downloadFileName || data.quotationNo || '견적서');
 
 
     const opt = {
       margin: [10, 10, 10, 10], 
-      filename: `견적서_${data.quotationNo}.pdf`,
+      filename: `${baseFileName}.pdf`,
       image: { type: 'jpeg', quality: 0.98 },
       html2canvas: { scale: 2, useCORS: true, logging: false },
       jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
@@ -86,6 +264,7 @@ function App() {
   // HTML 다운로드
   const handleDownloadHTML = () => {
     const element = previewRef.current;
+    const baseFileName = sanitizeFileName(downloadFileName || data.quotationNo || '견적서');
 
     const inlineCSS = `
       body { font-family: 'Inter', 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif; background: #fff; color: #000; padding: 20px; }
@@ -134,7 +313,7 @@ function App() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `견적서_${data.quotationNo}.html`;
+    link.download = `${baseFileName}.html`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -146,6 +325,13 @@ function App() {
       <header className="header">
         <h1 className="title">견적서 자동완성 서비스</h1>
         <div className="actions">
+          <input
+            className="download-name-input"
+            type="text"
+            value={downloadFileName}
+            onChange={(e) => setDownloadFileName(e.target.value)}
+            placeholder="다운로드 파일명 입력"
+          />
           <button className="btn btn-primary" onClick={handleDownloadPDF}>
             <Download size={18} />
             PDF 다운로드
@@ -164,6 +350,18 @@ function App() {
             <FileText size={20} className="inline-block mr-2 align-middle" style={{ marginRight: '8px' }} />
             견적 정보 입력
           </h2>
+          <div className="import-area">
+            <label className="file-upload-label">
+              <Upload size={16} />
+              PDF/HTML 불러오기
+              <input
+                type="file"
+                accept=".pdf,.html,text/html,application/pdf"
+                onChange={handleImportFile}
+              />
+            </label>
+            {importStatus && <p className="import-status">{importStatus}</p>}
+          </div>
 
           <div className="grid-2">
             <div className="form-group">
