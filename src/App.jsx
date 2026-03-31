@@ -402,7 +402,13 @@ function App() {
             </div>
             <div className="form-group" style={{ gridColumn: 'span 2' }}>
               <label>주소</label>
-              <input type="text" name="providerAddress" value={data.providerAddress} onChange={handleChange} placeholder="예: 서울시 강남구 테헤란로 123" />
+              <textarea
+                name="providerAddress"
+                rows="2"
+                value={data.providerAddress}
+                onChange={handleChange}
+                placeholder={"예: 서울시 강남구 테헤란로 123\n5층 501호"}
+              />
             </div>
           </div>
 
@@ -501,7 +507,7 @@ function App() {
                 </div>
                 <div className="doc-info-item">
                   <span className="doc-info-label" style={{ width: '80px' }}>사업장</span>
-                  <span className="doc-info-value">{data.providerAddress}</span>
+                  <span className="doc-info-value" style={{ whiteSpace: 'pre-line' }}>{data.providerAddress}</span>
                 </div>
                 <div className="doc-info-item">
                   <span className="doc-info-label" style={{ width: '80px' }}>연락처</span>
