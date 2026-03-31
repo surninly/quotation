@@ -561,7 +561,7 @@ function App() {
               {data.notes}
             </div>
 
-            <div style={{ textAlign: 'center', marginTop: '20px', fontSize: '1.2rem', fontWeight: 'bold' }}>
+            <div style={{ textAlign: 'center', marginTop: '35px', fontSize: '1.2rem', fontWeight: 'bold' }}>
               위와 같이 견적합니다.
             </div>
           </div>
